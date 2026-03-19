@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Training | {{ exercise }}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root {
+            --primary: #00ff88;
+            --secondary: #bc00ff;
+            --bg: #050505;
+            --surface: rgba(30, 30, 38, 0.7);
+        }
+
+        body { margin: 0; background: var(--bg); overflow: hidden; font-family: 'Segoe UI', Roboto, sans-serif; color: white; }
+        
+        #three-bg { position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* Layout */
+        .ui-wrapper {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            height: 100vh;
+            padding: 20px;
+            pointer-events: none;
+        }
+
+        /* Video Feed Box */
+        .video-container {
+            border: 3px solid var(--secondary);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(188, 0, 255, 0.3);
+            background: #000;
+            pointer-events: auto;
+        }
+
+        /* Material Sidebar with Glassmorphism */
+        .sidebar {
+            background: var(--surface);
+            backdrop-filter: blur(15px);
+            padding: 30px;
+            border-radius: 24px;
+            width: 350px;
+            height: 600px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            pointer-events: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .status-card {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .status-label { font-size: 0.7rem; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+        .status { font-size: 1.4rem; color: var(--primary); font-weight: bold; }
+
+        button {
+            background: linear-gradient(135deg, var(--primary), #00c853);
+            color: #000;
+            border: none;
+            padding: 15px;
+            font-size: 1rem;
+            font-weight: 700;
+            border-radius: 12px;
+            cursor: pointer;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+        }
+
+        button:hover { filter: brightness(1.2); transform: scale(1.02); }
+
+        .nav-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
+        .home-btn { 
+            flex: 1;
+            background: rgba(255,255,255,0.1); 
+            color: white; 
+            text-decoration: none; 
+            text-align: center;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        /* History Table */
+        .table-container { flex-grow: 1; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { text-align: left; font-size: 0.8rem; color: #888; padding-bottom: 10px; }
+        td { padding: 12px 5px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; }
+        
+        .reps-val { color: var(--primary); font-weight: bold; }
+        .grade-pill { background: var(--secondary); padding: 3px 8px; border-radius: 5px; font-size: 0.7rem; }
+
+    </style>
+</head>
+<body>
+    <div id="three-bg"></div>
+    
+    <!-- Chart Container -->
+    <div id="chart-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; padding: 30px; overflow-y: auto;">
+        <button onclick="document.getElementById('chart-modal').style.display='none'" style="position: absolute; top: 20px; right: 20px; background: var(--primary); padding: 10px 20px;">Close Chart</button>
+        <div style="background: var(--surface); padding: 30px; border-radius: 20px; max-width: 1000px; margin: auto; margin-top: 40px;">
+            <h2 style="color: var(--primary); margin-top: 0;">Workout Performance Chart</h2>
+            <canvas id="performanceChart"></canvas>
+        </div>
+    </div>
+
+    <div class="ui-wrapper">
+        <div class="video-container">
+            <img src="/video_feed" width="854" height="480">
+        </div>
+
+        <div class="sidebar">
+            <div class="nav-buttons">
+                <a href="/" class="home-btn">🏠 Home Menu</a>
+            </div>
+
+            <div class="status-card">
+                <div class="status-label">Live Tracker: {{ exercise }}</div>
+                <div id="status" class="status">Ready</div>
+            </div>
+
+            
+            <button onclick="document.getElementById('chart-modal').style.display='flex'; setTimeout(updateChart, 100)" style="background: linear-gradient(135deg, var(--secondary), #9500ff);">📊 View Chart</button>
+
+            <div class="table-container">
+                <table id="history">
+                    <thead>
+                        <tr>
+                            <th>TIME</th>
+                            <th>REPS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script>
+        let chartInstance = null;
+        let repHistory = [];
+        let timeLabels = [];
+        
+        function updateChart() {
+            const ctx = document.getElementById('performanceChart');
+            if (!ctx) return;
+            
+            if (chartInstance) {
+                chartInstance.data.labels = timeLabels;
+                chartInstance.data.datasets[0].data = repHistory;
+                chartInstance.update();
+            } else {
+                chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: timeLabels,
+                        datasets: [{
+                            label: 'Reps/Seconds',
+                            data: repHistory,
+                            borderColor: '#00ff88',
+                            backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: '#bc00ff',
+                            pointBorderColor: '#fff',
+                            pointRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                labels: { color: '#fff' }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                ticks: { color: '#aaa' }
+                            },
+                            x: {
+                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                ticks: { color: '#aaa' }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        // --- THREE.JS BACKGROUND ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('three-bg').appendChild(renderer.domElement);
+
+        const grid = new THREE.GridHelper(100, 50, 0xbc00ff, 0x111111);
+        grid.position.y = -8;
+        scene.add(grid);
+
+        camera.position.z = 15;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            grid.position.z += 0.05;
+            if(grid.position.z > 2) grid.position.z = 0;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- DATA POLLING ---
+        let lastCount = 0;
+        let repeatCount = 0;
+        
+        setInterval(() => {
+            fetch('/data').then(r => r.json()).then(data => {
+                const statusEl = document.getElementById('status');
+                if (data.complete) {
+                    statusEl.innerText = "Finished!";
+                    statusEl.style.color = "var(--secondary)";
+                } else if (data.time > 0) {
+                    statusEl.innerText = `Active: ${data.time}s`;
+                    statusEl.style.color = "var(--primary)";
+                } else {
+                    statusEl.innerText = "Ready";
+                    statusEl.style.color = "white";
+                }
+                
+                // Track data for chart
+                if (data.count !== lastCount || repeatCount === 0) {
+                    repHistory.push(data.count);
+                    timeLabels.push(`${data.time}s`);
+                    lastCount = data.count;
+                    
+                    // Update chart if it's open
+                    if (chartInstance && document.getElementById('chart-modal').style.display !== 'none') {
+                        updateChart();
+                    }
+                }
+                repeatCount++;
+                
+                let tbody = document.querySelector("#history tbody");
+                tbody.innerHTML = data.history.map(h => 
+                    `<tr>
+                        <td>${h.time}</td>
+                        <td class="reps-val">${h.count}</td>
+                    </tr>`
+                ).join('');
+            });
+        }, 1000);
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
